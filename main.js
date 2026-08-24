@@ -97,6 +97,13 @@ class GLMHtmlView extends ItemView {
       text: "导出 HTML",
     });
     exportBtn.addEventListener("click", () => this.exportCurrentHtml());
+    const closeBtn = actions.createEl("button", {
+      cls: "glm-html-preview-button",
+      text: "✕ 关闭",
+    });
+    closeBtn.addEventListener("click", () => {
+      this.plugin.app.workspace.detachLeavesOfType(VIEW_TYPE);
+    });
     this.frame = shell.createEl("iframe", {
       cls: "glm-html-preview-frame",
       attr: { sandbox: "allow-same-origin" },
@@ -493,7 +500,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
 <body class="${options.ai ? "ai-polished" : "quick-preview"}">
   <main class="page ${options.ai ? "page-polished" : "page-quick"}">
     <header class="hero">
-      <div class="kicker">${options.ai ? "AI Polished Note" : "Obsidian Note"} · Beautiful HTML</div>
+      <div class="kicker">${options.ai ? "AI Polished Note" : "Obsidian Note"} · GLM HTML Preview</div>
       <h1>${escapeHtml(meta.title)}</h1>
       <div class="meta">
         <span>${escapeHtml(file.path)}</span>
@@ -543,9 +550,9 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
   <main id="top" data-render-version="${escapeHtml(WEBIFIED_RENDER_VERSION)}">
     <section class="web-hero">
       <div class="hero-copy">
-        <p class="eyebrow">${renderInline(page.kicker || "AI Webified Note")}</p>
+        <p class="eyebrow">GLM HTML Preview</p>
         <h1>${renderInline(page.title)}</h1>
-        <p class="hero-summary">${renderInline(page.subtitle || page.summary || "")}</p>
+        ${page.subtitle ? `<p class="hero-summary">${renderInline(String(page.subtitle).substring(0, 80))}${String(page.subtitle).length > 80 ? '...' : ''}</p>` : ''}
         <div class="hero-meta">
           <span>${escapeHtml(file.path)}</span>
           <span>${new Date().toLocaleDateString("zh-CN")}</span>
