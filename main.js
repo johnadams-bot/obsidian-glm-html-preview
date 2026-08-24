@@ -15,12 +15,17 @@ const EXPORT_FOLDER = "03. 🟤 表达 Present/ai-outputs/glm-html";
 const WEBIFIED_RENDER_VERSION = "2026-07-07-full-coverage-v1";
 const POLISHED_RENDER_VERSION = "2026-07-05-polished-layout-v1";
 const DEFAULT_SETTINGS = {
-  provider: "deepseek",
+  provider: "glm",
   temperature: 0.3,
   maxTokens: 16000,
   aiPreviewCacheSize: 5,
   polishPrompt: defaultPolishPrompt(),
   webifyPrompt: defaultWebifyPrompt(),
+  glm: {
+    apiKey: "",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    model: "glm-4-flash",
+  },
   deepseek: {
     apiKey: "",
     baseUrl: "https://api.deepseek.com/chat/completions",
