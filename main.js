@@ -214,13 +214,22 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new GLMHtmlView(leaf, this));
     this.addSettingTab(new GLMHtmlPreviewSettingTab(this.app, this));
 
-    // 监听文件切换事件，取消正在进行的生成任务
+    // 监听文件切换事件，自动预览并取消正在进行的生成任务
+    let lastActiveLeaf = null;
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
+      this.app.workspace.on("active-leaf-change", async (leaf) => {
         if (this.isGenerating) {
           this.isGenerating = false;
           new Notice("已取消生成任务");
         }
+        // 如果当前激活的是预览面板，自动刷新
+        if (leaf && leaf.view && leaf.view.getViewType && leaf.view.getViewType() === VIEW_TYPE) {
+          const file = this.app.workspace.getActiveFile();
+          if (file && file.extension === "md") {
+            await this.convertActiveFile();
+          }
+        }
+        lastActiveLeaf = leaf;
       })
     );
 
