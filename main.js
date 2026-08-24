@@ -17,7 +17,7 @@ const POLISHED_RENDER_VERSION = "2026-07-05-polished-layout-v1";
 const DEFAULT_SETTINGS = {
   provider: "glm",
   temperature: 0.3,
-  maxTokens: 16000,
+  maxTokens: 32000,
   aiPreviewCacheSize: 5,
   polishPrompt: defaultPolishPrompt(),
   webifyPrompt: defaultWebifyPrompt(),
