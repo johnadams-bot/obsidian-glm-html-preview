@@ -288,7 +288,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       previewMarkdown = await this.polishMarkdownWithAi(sourceMarkdown, file);
       if (!previewMarkdown) return null;
       const rendered = await this.renderMarkdown(file, previewMarkdown);
-      html = this.buildBeautifulHtml(file, previewMarkdown, rendered, { ai: true });
+      html = this.buildGLMHtml(file, previewMarkdown, rendered, { ai: true });
       this.setCachedAiPreview(cacheKey, {
         filePath: file.path,
         fileName: file.basename,
@@ -297,7 +297,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       });
     } else {
       const rendered = await this.renderMarkdown(file, previewMarkdown);
-      html = this.buildBeautifulHtml(file, previewMarkdown, rendered, { ai: false });
+      html = this.buildGLMHtml(file, previewMarkdown, rendered, { ai: false });
     }
     const view = await this.openPreviewView();
     await view.showFile(file, html, { ai: !!options.ai, web: !!options.web });
@@ -467,7 +467,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
     return leaf.view;
   }
 
-  buildBeautifulHtml(file, markdown, renderedHtml, options = {}) {
+  buildGLMHtml(file, markdown, renderedHtml, options = {}) {
     const meta = extractMeta(markdown, file);
     const body = polishRenderedHtml(renderedHtml);
     const toc = buildToc(body);
