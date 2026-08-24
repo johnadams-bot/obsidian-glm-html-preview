@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-class BeautifulHtmlView extends ItemView {
+class GLMHtmlView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -199,8 +199,8 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
-    this.registerView(VIEW_TYPE, (leaf) => new BeautifulHtmlView(leaf, this));
-    this.addSettingTab(new BeautifulHtmlPreviewSettingTab(this.app, this));
+    this.registerView(VIEW_TYPE, (leaf) => new GLMHtmlView(leaf, this));
+    this.addSettingTab(new GLMHtmlPreviewSettingTab(this.app, this));
 
     this.addRibbonIcon("sparkles", "将当前文档转换为美观 HTML", () => {
       this.convertActiveFile();
@@ -560,7 +560,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
   }
 };
 
-class BeautifulHtmlPreviewSettingTab extends PluginSettingTab {
+class GLMHtmlPreviewSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
