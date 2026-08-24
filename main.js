@@ -214,6 +214,16 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new GLMHtmlView(leaf, this));
     this.addSettingTab(new GLMHtmlPreviewSettingTab(this.app, this));
 
+    // 监听文件切换事件，取消正在进行的生成任务
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        if (this.isGenerating) {
+          this.isGenerating = false;
+          new Notice("已取消生成任务");
+        }
+      })
+    );
+
     this.addRibbonIcon("sparkles", "将当前文档转换为美观 HTML", () => {
       this.convertActiveFile();
     });
@@ -552,7 +562,6 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       <div class="hero-copy">
         <p class="eyebrow">GLM HTML Preview</p>
         <h1>${renderInline(page.title)}</h1>
-        ${page.subtitle ? `<p class="hero-summary">${renderInline(String(page.subtitle).substring(0, 80))}${String(page.subtitle).length > 80 ? '...' : ''}</p>` : ''}
         <div class="hero-meta">
           <span>${escapeHtml(file.path)}</span>
           <span>${new Date().toLocaleDateString("zh-CN")}</span>
