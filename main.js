@@ -191,7 +191,7 @@ class BeautifulHtmlView extends ItemView {
   }
 }
 
-module.exports = class BeautifulHtmlPreviewPlugin extends Plugin {
+module.exports = class GLMHtmlPreviewPlugin extends Plugin {
   constructor() {
     super(...arguments);
     this.aiPreviewCache = new Map();
