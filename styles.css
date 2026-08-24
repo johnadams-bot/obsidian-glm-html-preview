@@ -1,5 +1,10 @@
 /* GLM HTML Preview Styles */
 
+/* 插件图标：预览模式开启时的高亮态 */
+.workspace-ribbon-action.glm-ribbon-on {
+  color: var(--interactive-accent);
+}
+
 .glm-html-preview-view {
   display: flex;
   flex-direction: column;

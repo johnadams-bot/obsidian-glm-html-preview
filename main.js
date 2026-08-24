@@ -8,6 +8,7 @@ const {
   Setting,
   TFile,
   normalizePath,
+  setIcon,
 } = require("obsidian");
 
 const VIEW_TYPE = "glm-html-preview-view";
@@ -102,7 +103,23 @@ class GLMHtmlView extends ItemView {
       text: "✕ 关闭",
     });
     closeBtn.addEventListener("click", () => {
-      this.plugin.app.workspace.detachLeavesOfType(VIEW_TYPE);
+      const { workspace } = this.plugin.app;
+      const leaves = workspace.getLeavesOfType(VIEW_TYPE);
+      if (leaves.length > 0 && this.currentFile) {
+        // 用原来的笔记视图替换回当前叶子，回到笔记显示方式
+        const leaf = leaves[0];
+        // 记录刚关闭的预览路径：setViewState 触发的 file-open（若发生）只抑制“同一篇”重预览，
+        // 不阻塞随后点击其他笔记立即进入预览；并清空“上次预览路径”，
+        // 使任意笔记（新笔记或之前打开过的笔记）点击后都会重新进入预览
+        this.plugin._justClosedPath = this.currentFile.path;
+        this.plugin.lastAutoPreviewPath = null;
+        leaf.setViewState({ type: "markdown", state: { file: this.currentFile.path }, active: true });
+        // 兜底：若 setViewState 因“同文件仅切换视图类型”未触发 file-open，50ms 后清除抑制标记，避免卡死
+        setTimeout(() => { this.plugin._justClosedPath = null; }, 50);
+      } else {
+        workspace.detachLeavesOfType(VIEW_TYPE);
+        this.plugin.lastAutoPreviewPath = null;
+      }
     });
     this.frame = shell.createEl("iframe", {
       cls: "glm-html-preview-frame",
@@ -207,6 +224,23 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
   constructor() {
     super(...arguments);
     this.aiPreviewCache = new Map();
+    // 代际令牌：每次渲染/切换笔记都 +1，用于让上一轮（其它笔记）的 AI 生成结果失效
+    this.generationToken = 0;
+    // 是否有 AI 生成任务在飞行中（用于切换笔记时给出取消提示）
+    this.aiGenerating = false;
+    // 当前激活的 Markdown 文件（预览面板自身激活时 getActiveFile 为 null，作为回退）
+    this.activeMarkdownFile = null;
+    // 最近一次自动预览的文件路径，避免对同一文件重复渲染
+    this.lastAutoPreviewPath = null;
+    // 当前 AI 请求的 AbortController，用于切换笔记时真正中断 HTTP 请求
+    this.currentAbortController = null;
+    // 全局预览模式总开关，默认开启（不持久化，每次启动回到开启态）
+    this.previewMode = true;
+    // 刚关闭预览的笔记路径：仅抑制“同一篇”因 setViewState 自身触发的 file-open 重预览，
+    // 不影响随后点击其他笔记立即进入预览（避免全局 80ms 抑制带来的竞态）
+    this._justClosedPath = null;
+    // 左侧插件图标元素，用于切换开/关两种视觉状态
+    this.ribbonIconEl = null;
   }
 
   async onload() {
@@ -214,28 +248,31 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new GLMHtmlView(leaf, this));
     this.addSettingTab(new GLMHtmlPreviewSettingTab(this.app, this));
 
-    // 监听文件切换事件，自动预览并取消正在进行的生成任务
-    let lastActiveLeaf = null;
+    // 预览模式默认开启
+    this.previewMode = this.settings.previewMode !== false;
+
+    // 监听笔记切换/打开：预览模式开启时自动进入 HTML 预览，并取消上一份文档的 AI 生成任务。
+    // 两个事件都要监听，缺一不可：
+    //  1) file-open —— 文件管理器点击 / 链接跳转打开“新”笔记时触发，回调直接给出被打开的文件；
+    //  2) active-leaf-change —— 点击“已打开的标签页”激活它时，Obsidian 只触发本事件、不触发 file-open，
+    //     若只监听 file-open，旧标签页将无法重新进入预览。文件直接从事件传入的 leaf.view.file 取，
+    //     不再用 getActiveFile()（leaf 切换瞬间可能取到 null/旧值，是此前“有时笔记有时预览”的根因）。
+    this.registerEvent(this.app.workspace.on("file-open", (file) => this.tryAutoPreview(file)));
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", async (leaf) => {
-        if (this.isGenerating) {
-          this.isGenerating = false;
-          new Notice("已取消生成任务");
-        }
-        // 如果当前激活的是预览面板，自动刷新
-        if (leaf && leaf.view && leaf.view.getViewType && leaf.view.getViewType() === VIEW_TYPE) {
-          const file = this.app.workspace.getActiveFile();
-          if (file && file.extension === "md") {
-            await this.convertActiveFile();
-          }
-        }
-        lastActiveLeaf = leaf;
-      })
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        // 仅当“markdown 标签被激活”时才尝试预览：覆盖“点击已打开的旧标签页”这一 file-open 不触发的场景；
+        // 忽略侧边栏/搜索等非文件面板，避免误触发重复渲染。文件直接从 leaf.view.file 取，不用会竞争的 getActiveFile()。
+        if (!leaf || !leaf.view) return;
+        if (leaf.view.getViewType && leaf.view.getViewType() !== "markdown") return;
+        const file = leaf.view.file || this.app.workspace.getActiveFile();
+        this.tryAutoPreview(file);
+      }),
     );
 
-    this.addRibbonIcon("sparkles", "将当前文档转换为美观 HTML", () => {
-      this.convertActiveFile();
-    });
+    // 左侧插件图标：HTML 预览模式总开关（点击切换开/关，默认开）
+    this.ribbonIconEl = this.addRibbonIcon("sparkles", "HTML 预览模式：开（点击关闭）", () => this.togglePreviewMode());
+    this.updateRibbonState();
+
 
     this.addCommand({
       id: "convert-current-note-to-beautiful-html",
@@ -278,11 +315,20 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
   }
 
   async convertActiveFile(options = {}) {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.app.workspace.getActiveFile() || this.activeMarkdownFile;
     if (!(file instanceof TFile) || file.extension !== "md") {
       new Notice("请先打开一个 Markdown 文档。");
       return null;
     }
+
+    // 开启新一轮生成：使上一轮（其它笔记）的 AI 生成结果失效，并中断其 HTTP 请求
+    this.generationToken = (this.generationToken || 0) + 1;
+    const myToken = this.generationToken;
+    if (this.currentAbortController) {
+      try { this.currentAbortController.abort(); } catch (e) { /* 忽略 */ }
+    }
+    this.currentAbortController = new AbortController();
+    const signal = this.currentAbortController.signal;
 
     const sourceMarkdown = await this.app.vault.cachedRead(file);
     let previewMarkdown = sourceMarkdown;
@@ -291,14 +337,17 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       const cacheKey = this.getAiPreviewCacheKey(file, sourceMarkdown, "web");
       const cached = this.getCachedAiPreview(cacheKey);
       if (cached) {
-        const view = await this.openPreviewView();
-        await view.showFile(file, cached.html, { web: true });
+        if (myToken !== this.generationToken) return null;
+        const view = await this.openPreviewView(file, cached.html, { web: true });
         new Notice("已显示缓存的 AI 网页化预览。");
         return view;
       }
 
-      const pageData = await this.webifyMarkdownWithAi(sourceMarkdown, file);
+      this.aiGenerating = true;
+      const pageData = await this.webifyMarkdownWithAi(sourceMarkdown, file, signal);
+      this.aiGenerating = false;
       if (!pageData) return null;
+      if (myToken !== this.generationToken) return null;
       html = this.buildWebifiedHtml(file, sourceMarkdown, pageData);
       this.setCachedAiPreview(cacheKey, {
         filePath: file.path,
@@ -310,14 +359,17 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       const cacheKey = this.getAiPreviewCacheKey(file, sourceMarkdown, "polish");
       const cached = this.getCachedAiPreview(cacheKey);
       if (cached) {
-        const view = await this.openPreviewView();
-        await view.showFile(file, cached.html, { ai: true });
+        if (myToken !== this.generationToken) return null;
+        const view = await this.openPreviewView(file, cached.html, { ai: true });
         new Notice("已显示缓存的 AI 润色预览。");
         return view;
       }
 
-      previewMarkdown = await this.polishMarkdownWithAi(sourceMarkdown, file);
+      this.aiGenerating = true;
+      previewMarkdown = await this.polishMarkdownWithAi(sourceMarkdown, file, signal);
+      this.aiGenerating = false;
       if (!previewMarkdown) return null;
+      if (myToken !== this.generationToken) return null;
       const rendered = await this.renderMarkdown(file, previewMarkdown);
       html = this.buildGLMHtml(file, previewMarkdown, rendered, { ai: true });
       this.setCachedAiPreview(cacheKey, {
@@ -328,15 +380,21 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       });
     } else {
       const rendered = await this.renderMarkdown(file, previewMarkdown);
+      if (myToken !== this.generationToken) return null;
       html = this.buildGLMHtml(file, previewMarkdown, rendered, { ai: false });
     }
-    const view = await this.openPreviewView();
-    await view.showFile(file, html, { ai: !!options.ai, web: !!options.web });
-    new Notice(options.web ? "已生成 AI 网页化 HTML 预览。" : options.ai ? "已生成 AI 润色 HTML 预览。" : "已生成美观 HTML 预览。");
+    if (myToken !== this.generationToken) return null;
+    const view = await this.openPreviewView(file, html, { ai: !!options.ai, web: !!options.web });
+    // 普通点击笔记的自动预览不再弹通知；AI 生成耗时较长，保留完成提示
+    if (options.web) {
+      new Notice("已生成 AI 网页化 HTML 预览。");
+    } else if (options.ai) {
+      new Notice("已生成 AI 润色 HTML 预览。");
+    }
     return view;
   }
 
-  async polishMarkdownWithAi(markdown, file) {
+  async polishMarkdownWithAi(markdown, file, signal) {
     const config = this.getActiveApiConfig();
     if (!config.apiKey || !config.baseUrl || !config.model) {
       new Notice("请先在 Beautiful HTML Preview 设置里填写 API Key、Base URL 和模型名。");
@@ -352,6 +410,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
           Authorization: `Bearer ${config.apiKey}`,
           "Content-Type": "application/json",
         },
+        signal,
         body: JSON.stringify({
           model: config.model,
           temperature: this.settings.temperature,
@@ -376,6 +435,10 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       }
       return stripMarkdownFence(content);
     } catch (error) {
+      // 切换笔记导致的主动中断，不报错
+      if (error && (error.name === "AbortError" || error.message === "The user aborted a request.")) {
+        return null;
+      }
       console.error("Beautiful HTML Preview AI polish failed", error);
       new Notice(`AI 润色失败：${error.message || error}`);
       return null;
@@ -384,7 +447,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
     }
   }
 
-  async webifyMarkdownWithAi(markdown, file) {
+  async webifyMarkdownWithAi(markdown, file, signal) {
     const config = this.getActiveApiConfig();
     if (!config.apiKey || !config.baseUrl || !config.model) {
       new Notice("请先在 Beautiful HTML Preview 设置里填写 API Key、Base URL 和模型名。");
@@ -400,6 +463,7 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
           Authorization: `Bearer ${config.apiKey}`,
           "Content-Type": "application/json",
         },
+        signal,
         body: JSON.stringify({
           model: config.model,
           temperature: Math.max(0.2, this.settings.temperature),
@@ -422,6 +486,10 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
       if (!content) throw new Error("API 没有返回可用内容。");
       return parseJsonPayload(content);
     } catch (error) {
+      // 切换笔记导致的主动中断，不报错
+      if (error && (error.name === "AbortError" || error.message === "The user aborted a request.")) {
+        return null;
+      }
       console.error("Beautiful HTML Preview webify failed", error);
       new Notice(`AI 网页化失败：${error.message || error}`);
       return null;
@@ -488,14 +556,138 @@ module.exports = class GLMHtmlPreviewPlugin extends Plugin {
     return container.innerHTML;
   }
 
-  async openPreviewView() {
-    let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
-    if (!leaf) {
-      leaf = this.app.workspace.getLeaf("split", "vertical");
-      await leaf.setViewState({ type: VIEW_TYPE, active: true });
+  // 串行化包装：叶子操作（setViewState/detach）与内容写入（showFile）必须严格排队，
+  // 否则快速切换笔记时两次操作交错，会误删刚替换好的预览叶子或覆盖内容，留下原模式笔记
+  async openPreviewView(file, html, options) {
+    const run = (this._previewChain || Promise.resolve()).then(() => this._openPreviewImpl(file, html, options));
+    this._previewChain = run.catch(() => {});
+    return run;
+  }
+
+  async _openPreviewImpl(file, html, options) {
+    const { workspace } = this.app;
+    // 优先用当前激活叶子：事件触发时它就是新笔记的 markdown 叶子，最可靠且零延迟
+    let leaf = null;
+    const active = workspace.activeLeaf;
+    if (
+      active &&
+      active.view &&
+      active.view.getViewType &&
+      active.view.getViewType() === "markdown" &&
+      active.view.file &&
+      active.view.file.path === file.path
+    ) {
+      leaf = active;
     }
-    await this.app.workspace.revealLeaf(leaf);
+    // 若激活叶子不是目标笔记的 markdown 叶子，则轮询等待 Obsidian 建好对应叶子，
+    // 避免时序竞争下替换到旧的预览叶子导致“有时打开笔记”
+    for (let i = 0; !leaf && i < 25; i++) {
+      leaf = workspace
+        .getLeavesOfType("markdown")
+        .find((l) => l.view && l.view.file && l.view.file.path === file.path);
+      if (!leaf) await new Promise((r) => setTimeout(r, 10));
+    }
+    if (!leaf) leaf = workspace.getLeaf(false);
+    // 移除旧的预览叶子，保证全局只有一个预览面板（无分屏）
+    // 注意：只 detach 与当前请求无关的旧预览叶子，避免并发时误删对方的叶子。
+    // 错误做法：getLeavesOfType(VIEW_TYPE)[0] —— 并发场景下取到的是别人的叶子。
+    // 正确做法：按 file.path 找到"已显示同一文件"的预览叶子，保留它；
+    // 再找到其他预览叶子并 detach。
+    const previewLeaves = workspace.getLeavesOfType(VIEW_TYPE);
+    const unrelatedLeaves = previewLeaves.filter(
+      (l) => l !== leaf && l.view && l.view.currentFile && l.view.currentFile.path !== file.path,
+    );
+    for (const l of unrelatedLeaves) {
+      try { l.detach(); } catch (_) { /* ignore */ }
+    }
+    await leaf.setViewState({ type: VIEW_TYPE, active: true });
+    // 叶子替换与内容写入在同一串行块内完成，避免被其他笔记的 detach 打断
+    if (html) {
+      await leaf.view.showFile(file, html, options || {});
+    }
     return leaf.view;
+  }
+
+  // 预览模式开启时，自动把当前/切换到的笔记渲染为 HTML 预览
+  tryAutoPreview(file) {
+    if (!this.previewMode) return;
+    const target = file || this.activeMarkdownFile;
+    // 仅抑制“刚刚关闭的那一篇”因 setViewState 自身触发的 file-open 重预览；
+    // 其他任意笔记（新笔记或之前打开过的笔记）点击后都应立即进入预览
+    if (target && this._justClosedPath && target.path === this._justClosedPath) {
+      return;
+    }
+    file = target;
+    if (!(file instanceof TFile) || file.extension !== "md") return;
+    this.activeMarkdownFile = file;
+    // 若当前激活的预览叶子已经在显示这篇笔记，直接跳过，避免无意义的重复渲染
+    const active = this.app.workspace.activeLeaf;
+    if (
+      active &&
+      active.view &&
+      active.view.getViewType &&
+      active.view.getViewType() === VIEW_TYPE &&
+      active.view.currentFile &&
+      active.view.currentFile.path === file.path
+    ) {
+      this.lastAutoPreviewPath = file.path;
+      return;
+    }
+    const switched = this.lastAutoPreviewPath && this.lastAutoPreviewPath !== file.path;
+    this.lastAutoPreviewPath = file.path;
+    this._justClosedPath = null;
+    if (switched && this.aiGenerating) {
+      new Notice("已切换笔记，取消上一份文档的 AI 生成任务");
+      if (this.currentAbortController) {
+        try { this.currentAbortController.abort(); } catch (e) { /* 忽略 */ }
+      }
+    }
+    this.convertActiveFile();
+  }
+
+  // 左侧插件图标：HTML 预览模式总开关
+  togglePreviewMode() {
+    this.previewMode = !this.previewMode;
+    this.updateRibbonState();
+    if (this.previewMode) {
+      // 进入预览模式：立即预览当前笔记（若有）
+      const file = this.app.workspace.getActiveFile();
+      if (file instanceof TFile && file.extension === "md") {
+        this.lastAutoPreviewPath = null; // 强制刷新当前笔记
+        this.convertActiveFile();
+      } else {
+        new Notice("HTML 预览模式：已开启");
+      }
+    } else {
+      // 关闭预览模式：所有预览叶子恢复为原来的笔记显示方式
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+      for (const leaf of leaves) {
+        const view = leaf.view;
+        const file = view && view.currentFile;
+        if (file) {
+          leaf.setViewState({ type: "markdown", state: { file: file.path }, active: true });
+        } else {
+          leaf.detach();
+        }
+      }
+      if (leaves.length === 0) new Notice("HTML 预览模式：已关闭");
+    }
+  }
+
+  // 刷新插件图标的开/关视觉状态
+  updateRibbonState() {
+    if (!this.ribbonIconEl) return;
+    if (this.previewMode) {
+      setIcon(this.ribbonIconEl, "sparkles");
+      this.ribbonIconEl.setAttribute("aria-label", "HTML 预览模式：开（点击关闭）");
+      this.ribbonIconEl.title = "HTML 预览模式：开（点击关闭）";
+      this.ribbonIconEl.classList.add("glm-ribbon-on");
+    } else {
+      setIcon(this.ribbonIconEl, "file-text");
+      this.ribbonIconEl.setAttribute("aria-label", "HTML 预览模式：关（点击开启）");
+      this.ribbonIconEl.title = "HTML 预览模式：关（点击开启）";
+      this.ribbonIconEl.classList.remove("glm-ribbon-on");
+    }
   }
 
   buildGLMHtml(file, markdown, renderedHtml, options = {}) {
