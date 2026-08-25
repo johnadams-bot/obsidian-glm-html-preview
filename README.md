@@ -1,3 +1,29 @@
+<!-- readme-lang-toggle-start -->
+<div align="right">
+  <strong>🌐 Language:</strong>
+  <button onclick="switchLang('zh')" id="btn-zh" style="background:#4a90e2;color:#fff;border:none;padding:4px 12px;margin:0 4px;border-radius:4px;cursor:pointer;">中文</button>
+  <button onclick="switchLang('en')" id="btn-en" style="background:#eee;color:#333;border:1px solid #ccc;padding:4px 12px;margin:0 4px;border-radius:4px;cursor:pointer;">English</button>
+</div>
+<script>
+function switchLang(lang) {
+  document.getElementById('zh-content').style.display = lang === 'zh' ? 'block' : 'none';
+  document.getElementById('en-content').style.display = lang === 'en' ? 'block' : 'none';
+  document.getElementById('btn-zh').style.background = lang === 'zh' ? '#4a90e2' : '#eee';
+  document.getElementById('btn-zh').style.color = lang === 'zh' ? '#fff' : '#333';
+  document.getElementById('btn-en').style.background = lang === 'en' ? '#4a90e2' : '#eee';
+  document.getElementById('btn-en').style.color = lang === 'en' ? '#fff' : '#333';
+  localStorage.setItem('lang', lang);
+}
+(function() {
+  const saved = localStorage.getItem('lang') || 'zh';
+  switchLang(saved);
+})();
+</script>
+<!-- readme-lang-toggle-end -->
+
+<!-- zh-content-start -->
+<div id="zh-content">
+
 # GLM HTML Preview for Obsidian
 
 把当前 Obsidian Markdown 笔记一键转换成更耐看的 HTML 预览，**原生支持智谱AI GLM-4-Flash 免费模型**。
@@ -16,7 +42,7 @@
 
 ### 方法一：从 releases 下载（推荐）
 
-1. 前往 [Releases 页面](https://github.com/zbq/obsidian-glm-html-preview/releases) 下载最新版 `main.js`、`manifest.json`、`styles.css`
+1. 前往 [Releases 页面](https://github.com/johnadams-bot/obsidian-glm-html-preview/releases) 下载最新版 `main.js`、`manifest.json`、`styles.css`
 2. 将这三个文件放入你的 Obsidian vault 的 `.obsidian/plugins/glm-html-preview/` 目录
 3. 重启 Obsidian，在设置 → 第三方插件 中启用
 
@@ -42,9 +68,9 @@
 {
   "provider": "glm",
   "temperature": 0.3,
-  "maxTokens": 16000,
+  "maxTokens": 32000,
   "glm": {
-    "apiKey": "your-api-key-here",
+    "apiKey": "***",
     "baseUrl": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "model": "glm-4-flash"
   }
@@ -60,7 +86,85 @@
    - `AI 润色预览`：调用 GLM 优化
    - `AI 网页化预览`：生成网页布局
    - `导出 HTML`：保存到 vault
+   - `✕ 关闭`：恢复原笔记视图
 
 ## 许可证
 
 MIT
+
+</div>
+<!-- zh-content-end -->
+
+<!-- en-content-start -->
+<div id="en-content" style="display:none;">
+
+# GLM HTML Preview for Obsidian
+
+Convert Obsidian Markdown notes into beautiful HTML previews with **free GLM-4-Flash AI support**.
+
+## Features
+
+- **Free AI Preview**: Native support for Zhipu AI GLM-4-Flash, no paid API key required
+- **Three Preview Modes**:
+  - Quick Preview: Direct Markdown rendering without AI
+  - AI Polish Preview: Optimize article structure with GLM-4-Flash
+  - AI Webify Preview: Generate web-like layout
+- **Export Support**: Export HTML to your vault directory
+- **Full Support**: Internal links, images, code blocks, tables, callouts
+
+## Installation
+
+### Method 1: Download from Releases (Recommended)
+
+1. Go to [Releases page](https://github.com/johnadams-bot/obsidian-glm-html-preview/releases) and download the latest `main.js`, `manifest.json`, `styles.css`
+2. Place these three files in your Obsidian vault's `.obsidian/plugins/glm-html-preview/` directory
+3. Restart Obsidian and enable in Settings → Community Plugins
+
+### Method 2: Manual Install
+
+1. Clone this repository
+2. Copy `main.js`, `manifest.json`, `styles.css` to your vault plugin directory
+3. Restart Obsidian and enable the plugin
+
+## Configure GLM-4-Flash
+
+1. Register at [Zhipu AI Open Platform](https://bigmodel.cn/)
+2. Get your API Key from personal center (**GLM-4-Flash is currently free**)
+3. Configure in Obsidian plugin settings:
+   - Provider: Select "智谱AI (GLM)"
+   - API Key: Paste your key
+   - Base URL: `https://open.bigmodel.cn/api/paas/v4/chat/completions`
+   - Model: `glm-4-flash`
+
+## Example Configuration
+
+```json
+{
+  "provider": "glm",
+  "temperature": 0.3,
+  "maxTokens": 32000,
+  "glm": {
+    "apiKey": "***",
+    "baseUrl": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "model": "glm-4-flash"
+  }
+}
+```
+
+## Usage
+
+1. Open any Markdown note
+2. Click the sparkle icon on the left ribbon, or run the command "Convert current document to GLM HTML Preview"
+3. Preview page provides:
+   - `Refresh`: Re-render
+   - `AI Polish Preview`: Optimize with GLM
+   - `AI Webify Preview`: Generate web layout
+   - `Export HTML`: Save to vault
+   - `✕ Close`: Return to original note view
+
+## License
+
+MIT
+
+</div>
+<!-- en-content-end -->
