@@ -1,7 +1,7 @@
 {
   "id": "glm-html-preview",
   "name": "GLM HTML Preview",
-  "version": "0.1.0",
+  "version": "0.2.3",
   "minAppVersion": "1.5.0",
   "description": "Convert Obsidian Markdown notes into beautiful HTML previews with GLM AI support (free).",
   "author": "Agnes AI",
