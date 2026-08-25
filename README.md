@@ -1,6 +1,6 @@
 # GLM HTML Preview for Obsidian
 
-> 🌐 **Languages**: [English](README_EN.md) | **中文** | [日本語](README_JA.md)
+> 🌐 **Languages**: [English](README_EN.md) | **中文**
 
 <p align="center">
   <img src="https://img.shields.io/badge/Obsidian-Community_Plugin-blue" alt="Obsidian Plugin">
